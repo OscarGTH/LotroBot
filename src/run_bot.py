@@ -1,9 +1,12 @@
+import time
+import math
+import threading
+import os
+from pynput.keyboard import Key, Listener
+from logzero import logger
 import pyautogui as pg
 import pydirectinput as pd
 import pygetwindow as gw
-from logzero import logger
-import time
-import math
 from config_parser import get_configuration
 
 # Tuple to hold game region coordinates
@@ -19,6 +22,22 @@ class Bot:
 
     def __init__(self) -> None:
         self.conf = get_configuration()
+        # Starting a thread to listen for user input
+        self.thread2 = threading.Thread(target=self.listen_to_keys, args=())
+        self.thread2.start()
+
+    def listen_to_keys(self):
+        # Collect events until released
+        with Listener(on_release=self.on_release) as listener:
+            listener.join()
+
+
+    def on_release(self, key):
+        # If released key is F10, exit the program.
+        if key == Key.f10:
+            logger.info("Closing bot.")
+            # Stop listener and stop bot.
+            os._exit(1)
 
 
     def activate_game_window(self):
@@ -51,7 +70,7 @@ class Bot:
     # Temporary function to test bot functionality
     def run(self):
 
-        print("Running bot. Beep Boop.")
+        logger.info("Running bot. Beep Boop.")
         # Activating game window
         window_active = self.activate_game_window()
         time.sleep(0.5)
@@ -61,8 +80,8 @@ class Bot:
             
 
     def run_mob_killer(self):
-        # TODO: Set better way to limit monster kill limit
-        for _ in range(5):
+        # Run mob killer indefinitely until F10 is pressed.
+        while(True):
             coords = self.find_monster()
             if coords:
                 # Get time to run to the target
@@ -115,7 +134,7 @@ class Bot:
                 pg.moveTo(x, y, 0.2)
                 # Click monster to target it
                 pg.click()
-                time.sleep(0.5)
+                time.sleep(0.2)
                 # Returning monster coordinates
                 return (x, y)
             else:
@@ -160,6 +179,7 @@ class Bot:
             self.click_right_mouse()
             time.sleep(1)
             if self.is_mob_defeated() and attack_count > 3:
+                # TODO: Detect if extra mobs have been pulled by clicking near the center of the screen.
                 break
             else:
                 attack_count += 1
