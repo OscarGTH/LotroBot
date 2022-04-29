@@ -12,11 +12,13 @@ from config_parser import get_configuration
 # Tuple to hold game region coordinates
 GAME_REGION = ()
 MINIMAP_REGION = (1600, 0, 290, 300)
-# Point(x=1165, y=193)
-# Point(x=1561, y=192)
+# Enemy HP bar pixel color
+ENEMY_HP_BAR_COLOR = (255, 132, 22)
+# Pixel that is checked for enemy HP bar color
+ENEMY_HP_BAR_COLOR_POS = (350, 70)
 COMBAT_LOG_REGION = (1165, 0, 396, 192)
 # Player moves around 14 pixels in ~1 second.
-RUN_SPEED = 14
+RUN_SPEED = 25
 
 class Bot:
 
@@ -34,7 +36,9 @@ class Bot:
 
     def on_release(self, key):
         # If released key is F10, exit the program.
-        if key == Key.f10:
+        if key == Key.f9:
+            logger.info(pg.pixel(350, 70))
+        if key == Key.f7:
             logger.info("Closing bot.")
             # Stop listener and stop bot.
             os._exit(1)
@@ -110,10 +114,13 @@ class Bot:
         logger.info("Running for " + str(distance) + " seconds.")
         # TODO: Make sure camera is in target mode (by pressing X)
         # Run towards target
+        time.sleep(0.2)
         pg.mouseDown(button='left')
+        time.sleep(0.1)
         pg.mouseDown(button='right')
-        for i in range(math.floor(distance)):
+        for _ in range(math.floor(distance)):
             pd.press("Space")
+            pd.press('1')
             time.sleep(1)
         pg.mouseUp(button='left')
         pg.mouseUp(button='right')
@@ -125,21 +132,29 @@ class Bot:
     def find_monster(self):
         """ Finds a monster from the minimap and turns towards it. """
         try:
-            monster = pg.locateOnScreen('images/monster-red-dot.png', confidence=0.9, region=MINIMAP_REGION)
-            if monster:
-                logger.info("Monster found.")
-                # Finding the centered location of the monster
-                x, y = pg.center(monster)
-                # Move mouse to monster in the minimap
-                pg.moveTo(x, y, 0.2)
-                # Click monster to target it
-                pg.click()
-                time.sleep(0.2)
-                # Returning monster coordinates
-                return (x, y)
+            # Finding nearest monster by pressing Backspace (LOTRO feature)
+            pd.press('backspace')
+            # If nearest couldn't be found, use comp. vision to look for the enemy.
+            if not self.check_player_has_target():
+                monster = pg.locateOnScreen('images/monster-red-dot.png', confidence=0.9, region=MINIMAP_REGION)
+                if monster:
+                    logger.info("Monster found.")
+                    # Finding the centered location of the monster
+                    x, y = pg.center(monster)
+                    # Move mouse to monster in the minimap
+                    pg.moveTo(x, y, 0.2)
+                    # Click monster to target it
+                    pg.click()
+                    # Returning monster coordinates
+                    return (x, y)
+                else:
+                    logger.warning("Monster not found.")
+                    return None
             else:
-                logger.warning("Monster not found.")
-                return None
+                # Returning center of minimap, so the player doesn't need to run towards monster.
+                center_x = pg.center(MINIMAP_REGION)[0]
+                center_y = pg.center(MINIMAP_REGION)[1]
+                return (center_x, center_y)
         except Exception as exc:
             logger.error(exc)
             return None
@@ -155,6 +170,23 @@ class Bot:
         else:
             return False
 
+
+    def check_player_has_target(self):
+        """ Check if player has targeted a mob. """
+
+        # Sleep a bit to wait for retargeting to happen.
+        time.sleep(1.6)
+        logger.info("Checking target.")
+        # Checking pixel color at a point where enemy hp bar would show up.
+        if pg.pixelMatchesColor(ENEMY_HP_BAR_COLOR_POS[0], ENEMY_HP_BAR_COLOR_POS[1], ENEMY_HP_BAR_COLOR):
+            # Attack current target, because player has aggro.
+            logger.info("Player has a target.")
+            return True
+        else:
+            logger.info("Player doesn't have a target.")
+            return False
+
+
     #####
     # COMBAT METHODS
     #####
@@ -162,24 +194,15 @@ class Bot:
     def attack_target(self):
         """ Attacks targeted enemy. """
 
-        # TODO: FIX THIS MESS
-        # Making sure player is facing enemy.
-        # Moving mouse to center of the screen.
-        pg.moveTo(pg.center(GAME_REGION)[0] + 100, pg.center(GAME_REGION)[1] + 100)
-        time.sleep(0.5)
-        # Turning camera to the monster.
-        pg.mouseDown(button='right')
-        pg.click()
-        time.sleep(0.5)
-        pg.mouseUp(button='right')
-
         attack_count = 0
         while(True):
             pd.press('1')
-            self.click_right_mouse()
             time.sleep(1)
             if self.is_mob_defeated() and attack_count > 3:
-                # TODO: Detect if extra mobs have been pulled by clicking near the center of the screen.
+                # Check if player has target after combat, if yes, then he has aggro.
+                if self.check_player_has_target():
+                    # Attack aggroed monster.
+                    self.attack_target()
                 break
             else:
                 attack_count += 1
