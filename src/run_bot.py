@@ -15,7 +15,7 @@ MINIMAP_REGION = (1600, 0, 290, 300)
 # Enemy HP bar pixel color
 ENEMY_HP_BAR_COLOR = (255, 132, 22)
 # Pixel that is checked for enemy HP bar color
-ENEMY_HP_BAR_COLOR_POS = (350, 70)
+ENEMY_HP_BAR_COLOR_POS = (468, 70)
 COMBAT_LOG_REGION = (1165, 0, 396, 192)
 # Player moves around 14 pixels in ~1 second.
 RUN_SPEED = 25
@@ -86,12 +86,12 @@ class Bot:
     def run_mob_killer(self):
         # Run mob killer indefinitely until F10 is pressed.
         while(True):
-            coords = self.find_monster()
-            if coords:
-                # Get time to run to the target
-                distance = self.calc_dist_to_monster(coords)
+            # Getting distance to nearest monster.
+            distance_to_monster = self.find_nearest_monster()
+            if distance_to_monster:
+                run_time = distance_to_monster / RUN_SPEED
                 # Run to the target
-                self.run_towards_target(distance)
+                self.run_towards_target(run_time)
                 # Attack target
                 self.attack_target()
 
@@ -99,19 +99,20 @@ class Bot:
     def calc_dist_to_monster(self, coords):
         """ Calculates the distance between the player and the monster. """
 
-        x_diff = abs(coords[0] - pg.center(MINIMAP_REGION)[0])
-        y_diff = abs(coords[1] - pg.center(MINIMAP_REGION)[1])
-        # Selecting maximum difference of the two
-        if x_diff >= y_diff:
-            # Calculating time to run to the target
-            return x_diff / RUN_SPEED
-        else:
-            return y_diff / RUN_SPEED
+        # Using math formula to calculate the distance between center of the minimap and the monster dot.
+        # Formula is as follows: d = √[(x2 − x1)2 + (y2 − y1)2]
+        center_x, center_y = pg.center(MINIMAP_REGION)
+        dist = math.sqrt(math.pow(coords[0] - center_x, 2) + math.pow(coords[1] - center_y, 2))
+        return dist
       
 
     def run_towards_target(self, distance):
         """ Runs towards the target for a given distance (which is time) """
+
         logger.info("Running for " + str(distance) + " seconds.")
+        # Moving mouse away from the minimap.
+        x, y = pg.center(MINIMAP_REGION)
+        pd.moveTo(x + 50, y + 50, 0.2)
         # TODO: Make sure camera is in target mode (by pressing X)
         # Run towards target
         time.sleep(0.2)
@@ -129,36 +130,37 @@ class Bot:
     # IMAGE DETECTION METHODS
     #####
 
-    def find_monster(self):
-        """ Finds a monster from the minimap and turns towards it. """
+    def find_nearest_monster(self):
+        """ Finds the nearest monster from the minimap."""
         try:
             # Finding nearest monster by pressing Backspace (LOTRO feature)
             pd.press('backspace')
             # If nearest couldn't be found, use comp. vision to look for the enemy.
             if not self.check_player_has_target():
-                monster = pg.locateOnScreen('images/monster-red-dot.png', confidence=0.9, region=MINIMAP_REGION)
-                if monster:
+                distances = dict()
+                # Locating all monster dots on the minimap.
+                for monster in pg.locateAllOnScreen('images/monster-red-dot.png', confidence=0.9, region=MINIMAP_REGION):
                     logger.info("Monster found.")
                     # Finding the centered location of the monster
                     x, y = pg.center(monster)
+                    # Appending distance to monster to dict along with its coordinates.
+                    distances[self.calc_dist_to_monster((x,y))] = (x,y)
+                # If monster dots were found, pick the minimum.
+                if distances:
+                    # Get coordinates from dict by choosing the minimum key value.
+                    closest_monster = min(distances.items(), key=lambda x: x[1])
                     # Move mouse to monster in the minimap
-                    pg.moveTo(x, y, 0.2)
+                    pg.moveTo(closest_monster[1][0], closest_monster[1][1], 0.2)
                     # Click monster to target it
                     pg.click()
-                    # Returning monster coordinates
-                    return (x, y)
-                else:
-                    logger.warning("Monster not found.")
-                    return None
+                    # Returning monster with minimum distance to player.
+                    return closest_monster[0]
             else:
-                # Returning center of minimap, so the player doesn't need to run towards monster.
-                center_x = pg.center(MINIMAP_REGION)[0]
-                center_y = pg.center(MINIMAP_REGION)[1]
-                return (center_x, center_y)
+                # Returning distance of 1, so the player doesn't need to run towards monster.
+                return 1
         except Exception as exc:
             logger.error(exc)
             return None
-
 
     def is_mob_defeated(self):
         """ Detects if mob was defeated by the player. """
@@ -171,11 +173,12 @@ class Bot:
             return False
 
 
-    def check_player_has_target(self):
+    def check_player_has_target(self, in_combat=False):
         """ Check if player has targeted a mob. """
 
         # Sleep a bit to wait for retargeting to happen.
-        time.sleep(1.6)
+        if in_combat:
+            time.sleep(1)
         logger.info("Checking target.")
         # Checking pixel color at a point where enemy hp bar would show up.
         if pg.pixelMatchesColor(ENEMY_HP_BAR_COLOR_POS[0], ENEMY_HP_BAR_COLOR_POS[1], ENEMY_HP_BAR_COLOR):
@@ -197,19 +200,16 @@ class Bot:
         attack_count = 0
         while(True):
             pd.press('1')
-            time.sleep(1)
-            if self.is_mob_defeated() and attack_count > 3:
+            time.sleep(0.6)
+            if attack_count > 3 and self.is_mob_defeated():
                 # Check if player has target after combat, if yes, then he has aggro.
-                if self.check_player_has_target():
+                if self.check_player_has_target(True):
                     # Attack aggroed monster.
                     self.attack_target()
                 break
             else:
                 attack_count += 1
 
-    def use_skill(self, key):
-        # Uses a skill in-game by pressing the given key
-        pd.press(key)
 
     #####
     # HELPER METHODS
